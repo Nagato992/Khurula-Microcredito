@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Khurula Microcrédito</title>
+<style>
+  :root { --bg:#f5f7fa; --card:#fff; --txt:#1b2733; --mut:#6b7885; --pri:#0b7a4b; --bd:#dde3ea; --err:#c0392b; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14181d; --card:#1e242b; --txt:#e8edf2; --mut:#93a0ad; --pri:#2ec27e; --bd:#2f3943; --err:#ff7b6b; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { display:flex; justify-content:space-between; align-items:center; padding:14px 20px; background:var(--pri); color:#fff; }
+  main { max-width:760px; margin:20px auto; padding:0 14px; }
+  .card { background:var(--card); border:1px solid var(--bd); border-radius:12px; padding:18px; margin-bottom:16px; }
+  h2 { margin:0 0 12px; font-size:1.1rem; }
+  input { width:100%; padding:10px; margin:5px 0 10px; border:1px solid var(--bd); border-radius:8px; background:var(--bg); color:var(--txt); font-size:1rem; }
+  button { padding:10px 16px; border:0; border-radius:8px; background:var(--pri); color:#fff; font-size:.95rem; cursor:pointer; margin-right:6px; }
+  button.sec { background:transparent; color:var(--pri); border:1px solid var(--pri); }
+  button.bad { background:var(--err); }
+  .msg { color:var(--err); min-height:1.2em; font-size:.9rem; }
+  .ok { color:var(--pri); }
+  .loan { border-top:1px solid var(--bd); padding:12px 0; }
+  .tag { display:inline-block; padding:2px 10px; border-radius:99px; font-size:.78rem; background:var(--bd); }
+  .tag.aprovado{background:#cfeedd;color:#075c37} .tag.pendente{background:#fdeeb8;color:#7a5b00}
+  .tag.rejeitado{background:#f7d0cb;color:#8a2417} .tag.pago{background:#cfe3f7;color:#14507f}
+  .mut { color:var(--mut); font-size:.88rem; }
+  .hide { display:none; }
+  .row { display:flex; gap:10px; } .row > * { flex:1; }
+</style>
+</head>
+<body>
+<header><strong>Khurula Microcrédito</strong><span id="quem"></span></header>
+<main>
+  <section id="auth" class="card">
+    <h2 id="authTitulo">Entrar</h2>
+    <input id="telefone" placeholder="Telefone (ex.: 841234567)" inputmode="tel">
+    <input id="password" type="password" placeholder="Palavra-passe">
+    <div class="msg" id="authMsg"></div>
+    <button id="btnAuth">Entrar</button>
+    <button class="sec" id="btnTroca">Criar conta</button>
+  </section>
+
+  <section id="app" class="hide">
+    <div id="clienteBox" class="card">
+      <h2>Pedir crédito</h2>
+      <div class="row">
+        <div><label class="mut">Valor (MT)</label><input id="valor" type="number" min="1"></div>
+        <div><label class="mut">Prazo (meses)</label><input id="meses" type="number" min="1" max="12" value="3"></div>
+      </div>
+      <div id="dadosPessoais">
+        <input id="nome" placeholder="Nome completo">
+        <input id="bi" placeholder="Nº do BI">
+      </div>
+      <div id="sim" class="mut"></div><div class="msg" id="loanMsg"></div>
+      <button class="sec" id="btnSim">Simular</button><button id="btnPedir">Pedir crédito</button>
+    </div>
+    <div class="card"><h2 id="listaTitulo">Os meus créditos</h2><div id="lista"></div></div>
+    <button class="sec" id="btnSair">Sair</button>
+  </section>
+</main>
+<script>
+let token = localStorage.getItem('token'), user = JSON.parse(localStorage.getItem('user') || 'null'), modoReg = false;
+const $ = (id) => document.getElementById(id);
+const mt = (n) => Number(n).toLocaleString('pt-PT', { minimumFractionDigits: 2 }) + ' MT';
+
+async function api(url, method = 'GET', body) {
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json', ...(token && { Authorization: 'Bearer ' + token }) }, body: body && JSON.stringify(body) });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.erro || 'Erro');
+  return d;
+}
+function ecra() {
+  const logado = !!token;
+  $('auth').classList.toggle('hide', logado); $('app').classList.toggle('hide', !logado);
+  $('quem').textContent = logado ? user.nome : '';
+  if (logado) { $('clienteBox').classList.toggle('hide', user.role === 'admin'); $('listaTitulo').textContent = user.role === 'admin' ? 'Todos os créditos' : 'Os meus créditos'; carregar(); if (user.role !== 'admin') dadosCliente(); }
+}
+$('btnTroca').onclick = () => { modoReg = !modoReg; $('authTitulo').textContent = modoReg ? 'Criar conta' : 'Entrar'; $('btnAuth').textContent = modoReg ? 'Registar' : 'Entrar'; $('btnTroca').textContent = modoReg ? 'Já tenho conta' : 'Criar conta'; };
+$('btnAuth').onclick = async () => {
+  try {
+    const d = await api('/api/auth/' + (modoReg ? 'register' : 'login'), 'POST', { telefone: $('telefone').value, password: $('password').value });
+    token = d.token; user = d.user; localStorage.setItem('token', token); localStorage.setItem('user', JSON.stringify(user)); $('authMsg').textContent = ''; ecra();
+  } catch (e) { $('authMsg').textContent = e.message; }
+};
+$('btnSair').onclick = () => { localStorage.clear(); token = user = null; ecra(); };
+$('btnSim').onclick = async () => {
+  try { const s = await api(`/api/loans/simular?valor=${$('valor').value}&meses=${$('meses').value}`); $('sim').textContent = `Total a pagar: ${mt(s.total)} · ${s.meses} prestações de ${mt(s.prestacao)} (juro ${s.taxa_mensal * 100}%/mês)`; $('loanMsg').textContent = ''; }
+  catch (e) { $('loanMsg').textContent = e.message; }
+};
+$('btnPedir').onclick = async () => {
+  try { await api('/api/loans', 'POST', { valor: $('valor').value, meses: $('meses').value, nome: $('nome').value, bi: $('bi').value }); $('loanMsg').textContent = ''; $('sim').textContent = 'Pedido enviado!'; carregar(); dadosCliente(); }
+  catch (e) { $('loanMsg').textContent = e.message; }
+};
+async function dadosCliente() {
+  const me = await api('/api/auth/me');
+  $('nome').value = me.nome || ''; $('bi').value = me.bi || '';
+  $('dadosPessoais').classList.toggle('hide', !!(me.nome && me.bi));
+}
+async function carregar() {
+  const ls = await api('/api/loans'), admin = user.role === 'admin';
+  $('lista').innerHTML = ls.length ? ls.map((l) => `
+    <div class="loan">
+      <strong>${mt(l.valor)}</strong> <span class="tag ${l.estado}">${l.estado}</span>
+      ${admin ? `<div class="mut">${l.nome} · ${l.telefone} · BI ${l.bi}</div>` : ''}
+      <div class="mut">${l.meses} meses · total ${mt(l.total)} · prestação ${mt(l.prestacao)}</div>
+      <div class="mut">Pago ${mt(l.pago)} · Em dívida ${mt(l.saldo)}</div>
+      ${admin && l.estado === 'pendente' ? `<button onclick="decidir(${l.id},'aprovar')">Aprovar</button><button class="bad" onclick="decidir(${l.id},'rejeitar')">Rejeitar</button>` : ''}
+      ${admin && l.estado === 'aprovado' ? `<button class="sec" onclick="pagar(${l.id})">Registar pagamento</button>` : ''}
+    </div>`).join('') : '<div class="mut">Sem créditos.</div>';
+}
+async function decidir(id, decisao) { try { await api(`/api/loans/${id}/decidir`, 'PATCH', { decisao }); carregar(); } catch (e) { alert(e.message); } }
+async function pagar(id) { const v = prompt('Valor do pagamento (MT):'); if (!v) return; try { await api(`/api/loans/${id}/pagamentos`, 'POST', { valor: v }); carregar(); } catch (e) { alert(e.message); } }
+ecra();
+</script>
+</body>
+</html>
